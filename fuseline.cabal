@@ -1,0 +1,42 @@
+cabal-version:       2.4
+
+name:                fuseline
+version:             0.1.0.0
+synopsis:            Library for building REPLs with fused-effects
+-- A longer description of the package.
+-- description:
+homepage:            github.com/johnchildren/fuseline
+bug-reports:         github.com/johnchildren/fuseline/issues
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              John Children
+maintainer:          john.a.children@gmail.com
+-- A copyright notice.
+-- copyright:
+category:            Development
+extra-source-files:  CHANGELOG.md
+                   , README.md
+
+
+common warning-flags
+  ghc-options:         -Wall
+                       -Wincomplete-uni-patterns
+                       -Wincomplete-record-updates
+                       -Wcompat
+                       -Widentities
+                       -Wredundant-constraints
+                       -Wmissing-export-lists
+                       -Wpartial-fields
+                       -Wincomplete-patterns
+
+library
+  import:              warning-flags
+  exposed-modules:     System.Console.Fuseline
+  -- LANGUAGE extensions used by modules in this package.
+  -- other-extensions:
+  build-depends:       base ^>=4.12.0.0
+                     , fused-effects ^>=0.4.0
+                     , text ^>=1.2.0.0
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+

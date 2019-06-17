@@ -21,14 +21,19 @@
 module System.Console.Fuseline
   ( Config(..)
   , Repl(..)
-  , replLoop
   , runRepl
+  , showBanner
+  , read
+  , eval
+  , print
+  , interrupt
+  , quit
+  , replLoop
   )
 where
 
 import           Prelude                                  ( (.)
                                                           , ($)
-                                                          , undefined
                                                           , IO
                                                           )
 import           Control.Applicative                      ( Applicative
@@ -45,7 +50,7 @@ import           Control.Effect.Carrier                   ( Effect(..)
 import           Control.Effect.Error                     ( Error
                                                           , ErrorC
                                                           , throwError
-                                                          , catchError
+                                                          --, catchError
                                                           , runError
                                                           )
 import           Control.Effect.Lift                      ( Lift
@@ -78,13 +83,14 @@ import           System.Exit                              ( exitFailure
                                                           )
 
 
-data Config s e v = Config { _banner :: Text
-                         , _interpreter :: s -> Text -> Either e v
-                         , _showError :: e -> Text
-                         , _showValue :: v -> Text
-                         , _goodbye :: Text
-                         , _updateState :: s -> v -> s
-                         }
+data Config s e v = Config
+   { _banner :: Text
+   , _interpreter :: s -> Text -> Either e v
+   , _showError :: e -> Text
+   , _showValue :: v -> Text
+   , _goodbye :: Text
+   , _updateState :: s -> v -> s
+   }
 
 data Repl s e v (m :: * -> *) k
   = ShowBanner k
@@ -121,10 +127,23 @@ print val = send (Print @s @e @v val (pure ()))
 --catch :: (Member (Repl s e v) sig, Carrier sig m) => m a -> (e -> m a) -> m a
 --catch m h = send (Catch m h pure)
 
+interrupt
+  :: forall s e v m sig . (Member (Repl s e v) sig, Carrier sig m) => m ()
+interrupt = send (Interrupt @s @e @v (pure ()))
+
+quit :: forall s e v m sig . (Member (Repl s e v) sig, Carrier sig m) => m ()
+quit = send (Quit @s @e @v (pure ()))
+
 newtype ReplC s e v m a = ReplC { runReplC :: ReaderC (Config s e v) (ErrorC e (StateC s (LiftC m))) a }
   deriving newtype (Functor, Applicative, Monad)
 
-instance (Carrier sig m, Effect sig, Member (Reader (Config s e v)) sig, Member (State s) sig, Member (Error e) sig, Member (Lift IO) (Lift m)) => Carrier (Repl s e v :+: sig) (ReplC s e v m) where
+instance (Carrier sig m,
+          Effect sig,
+          Member (Reader (Config s e v)) sig,
+          Member (State s) sig,
+          Member (Error e) sig,
+          Member (Lift IO) (Lift m))
+            => Carrier (Repl s e v :+: sig) (ReplC s e v m) where
   eff
     :: forall a
      . (:+:) (Repl s e v) sig (ReplC s e v m) (ReplC s e v m a)
@@ -141,7 +160,9 @@ instance (Carrier sig m, Effect sig, Member (Reader (Config s e v)) sig, Member 
     state  <- get
     ReplC $ case _interpreter config state input of
       Left  err   -> throwError err
-      Right value -> runReplC . k $ value
+      Right value -> do
+        put $ _updateState config state value
+        runReplC . k $ value
 
   eff (L (Print value k)) = do
     config <- ask @(Config s e v)
@@ -160,21 +181,10 @@ runRepl :: Config s e v -> s -> ReplC s e v m a -> m (s, Either e a)
 runRepl config s = runM . runState s . runError . runReader config . runReplC
 
 replLoop
-  :: forall s e v m sig
-   . ( Effect sig
-     , Member (Reader (Config s e v)) sig
-     , Member (State s) sig
-     , Member (Error e) sig
-     , Member (Lift IO) (Lift m)
-     , Carrier sig m
-     )
-  => Config s e v
-  -> s
-  -> m (s, Either e ())
-replLoop config initial = runRepl config initial loop
+  :: forall s e v m sig . (Member (Repl s e v) sig, Carrier sig m) => m ()
+replLoop = showBanner @s @e @v >> loop
  where
   loop = do
-    showBanner @s @e @v
     minput <- read @s @e @v
     case minput of
       ""    -> loop

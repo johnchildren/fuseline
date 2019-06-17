@@ -1,36 +1,40 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module System.Console.Fuseline
   ( Config(..)
   , Repl(..)
   , replLoop
-  , runReplIO
+  , runRepl
   )
 where
 
 import           Prelude                                  ( (.)
                                                           , ($)
                                                           , undefined
+                                                          , IO
                                                           )
 import           Control.Applicative                      ( Applicative
                                                           , pure
                                                           )
 import           Control.Effect                           ( Member
-                                                          , run
                                                           , send
                                                           )
 import           Control.Effect.Carrier                   ( Effect(..)
@@ -39,26 +43,34 @@ import           Control.Effect.Carrier                   ( Effect(..)
                                                           , handleCoercible
                                                           )
 import           Control.Effect.Error                     ( Error
+                                                          , ErrorC
                                                           , throwError
                                                           , catchError
+                                                          , runError
+                                                          )
+import           Control.Effect.Lift                      ( Lift
+                                                          , LiftC(..)
+                                                          , sendM
+                                                          , runM
+                                                          )
+import           Control.Effect.Reader                    ( Reader
+                                                          , ReaderC
+                                                          , ask
+                                                          , runReader
                                                           )
 import           Control.Effect.State                     ( State
+                                                          , StateC
                                                           , get
                                                           , put
+                                                          , runState
                                                           )
 import           Control.Effect.Sum                       ( (:+:)(..) )
 import           Control.Monad                            ( Monad
                                                           , (>>)
                                                           , (>>=)
                                                           )
-import           Control.Monad.IO.Class                   ( MonadIO
-                                                          , liftIO
-                                                          )
 import           Data.Either                              ( Either(..) )
-import           Data.Functor                             ( Functor
-                                                          , (<$)
-                                                          , fmap
-                                                          )
+import           Data.Functor                             ( Functor )
 import           Data.Text                                ( Text )
 import qualified Data.Text.IO                  as Text
 import           System.Exit                              ( exitFailure
@@ -66,105 +78,106 @@ import           System.Exit                              ( exitFailure
                                                           )
 
 
-data Config e s v = Config { _banner :: Text
+data Config s e v = Config { _banner :: Text
                          , _interpreter :: s -> Text -> Either e v
                          , _showError :: e -> Text
                          , _showValue :: v -> Text
                          , _goodbye :: Text
-                         , _initialState :: s
                          , _updateState :: s -> v -> s
                          }
 
-data Repl (m :: * -> *) k
-  = ShowBanner Text k
+data Repl s e v (m :: * -> *) k
+  = ShowBanner k
   | Read (Text -> k)
---  | forall e v . Eval (Text -> Either e v) Text k
-  | forall v . Print (v -> Text) v k
+  | Eval Text (v -> k)
+  | Print v k
+--  can't derive catch
+--  | forall b . Catch (m b) (e -> m b) (b -> k)
   | Interrupt k
-  | Quit Text k
+  | Quit k
 
-deriving instance Functor (Repl m)
+deriving instance Functor (Repl s e v m)
+deriving instance HFunctor (Repl s e v)
+deriving instance Effect (Repl s e v)
 
-instance HFunctor Repl where
-  hmap :: (forall x . m x -> n x) -> Repl m k -> Repl n k
-  hmap _ (ShowBanner banner k    ) = ShowBanner banner k
-  hmap _ (Read k                 ) = Read k
-  hmap _ (Print showValue value k) = Print showValue value k
-  hmap _ (Interrupt k            ) = Interrupt k
-  hmap _ (Quit goodbye k         ) = Quit goodbye k
+showBanner
+  :: forall s e v m sig . (Member (Repl s e v) sig, Carrier sig m) => m ()
+showBanner = send (ShowBanner @s @e @v (pure ()))
 
-instance Effect Repl where
-  handle
-    :: Functor f
-    => f ()
-    -> (forall x . f (m x) -> n (f x))
-    -> Repl m (m b)
-    -> Repl n (n (f b))
-  handle state handler (ShowBanner banner k) =
-    ShowBanner banner (handler (k <$ state))
-  handle state handler (Read k) = Read (handler . fmap (<$ state) k)
-  handle state handler (Print showValue value k) =
-    Print showValue value (handler (k <$ state))
-  handle state handler (Interrupt k   ) = Interrupt (handler (k <$ state))
-  handle state handler (Quit goodbye k) = Quit goodbye (handler (k <$ state))
+read :: forall s e v m sig . (Member (Repl s e v) sig, Carrier sig m) => m Text
+read = send (Read @s @e @v pure)
 
-showBanner :: (Member Repl sig, Carrier sig m) => Text -> m ()
-showBanner banner = send (ShowBanner banner (pure ()))
+eval
+  :: forall s e v m sig
+   . (Member (Repl s e v) sig, Carrier sig m)
+  => Text
+  -> m v
+eval t = send (Eval @s @e @v t pure)
 
-read :: (Member Repl sig, Carrier sig m) => m Text
-read = send (Read pure)
+print
+  :: forall s e v m sig . (Member (Repl s e v) sig, Carrier sig m) => v -> m ()
+print val = send (Print @s @e @v val (pure ()))
 
-print :: (Member Repl sig, Carrier sig m) => (v -> Text) -> v -> m ()
-print showValue value = send (Print showValue value (pure ()))
+--catch :: (Member (Repl s e v) sig, Carrier sig m) => m a -> (e -> m a) -> m a
+--catch m h = send (Catch m h pure)
 
-interrupt :: (Member Repl sig, Carrier sig m) => m ()
-interrupt = send (Interrupt (pure ()))
+newtype ReplC s e v m a = ReplC { runReplC :: ReaderC (Config s e v) (ErrorC e (StateC s (LiftC m))) a }
+  deriving newtype (Functor, Applicative, Monad)
 
-quit :: (Member Repl sig, Carrier sig m) => Text -> m ()
-quit message = send (Quit message (pure ()))
+instance (Carrier sig m, Effect sig, Member (Reader (Config s e v)) sig, Member (State s) sig, Member (Error e) sig, Member (Lift IO) (Lift m)) => Carrier (Repl s e v :+: sig) (ReplC s e v m) where
+  eff
+    :: forall a
+     . (:+:) (Repl s e v) sig (ReplC s e v m) (ReplC s e v m a)
+    -> ReplC s e v m a
 
-newtype ReplIOC m a = ReplIOC { runReplIOC :: m a }
-  deriving newtype (Functor, Applicative, Monad, MonadIO)
+  eff (L (ShowBanner k)) = do
+    config <- ask @(Config s e v)
+    ReplC $ sendM (Text.putStrLn (_banner config)) >> runReplC k
 
-instance (Carrier sig m, MonadIO m) => Carrier (Repl :+: sig) (ReplIOC m) where
-  eff (L (ShowBanner banner k)) =
-    ReplIOC $ liftIO (Text.putStrLn banner) >> runReplIOC k
-  eff (L (Read k)) = ReplIOC (liftIO Text.getLine >>= runReplIOC . k)
-  eff (L (Print showValue value k)) =
-    ReplIOC $ liftIO (Text.putStrLn (showValue value)) >> runReplIOC k
-  eff (L (Interrupt _)) = ReplIOC (liftIO exitFailure)
-  eff (L (Quit message _)) =
-    ReplIOC (liftIO (Text.putStrLn message >> exitSuccess))
-  eff (R other) = ReplIOC (eff (handleCoercible other))
+  eff (L (Read k      )) = ReplC (sendM Text.getLine >>= runReplC . k)
 
-runReplIO :: ReplIOC m a -> m a
-runReplIO = runReplIOC
+  eff (L (Eval input k)) = do
+    config <- ask @(Config s e v)
+    state  <- get
+    ReplC $ case _interpreter config state input of
+      Left  err   -> throwError err
+      Right value -> runReplC . k $ value
+
+  eff (L (Print value k)) = do
+    config <- ask @(Config s e v)
+    ReplC $ sendM (Text.putStrLn (_showValue config value)) >> runReplC k
+
+  eff (L (Interrupt _)) = ReplC (sendM exitFailure)
+
+  eff (L (Quit      _)) = do
+    config <- ask @(Config s e v)
+    ReplC (sendM (Text.putStrLn (_goodbye config) >> exitSuccess))
+
+  eff (R other) = eff (R (handleCoercible other))
+
+
+runRepl :: Config s e v -> s -> ReplC s e v m a -> m (s, Either e a)
+runRepl config s = runM . runState s . runError . runReader config . runReplC
 
 replLoop
-  :: ( Member (Error e) sig
+  :: forall s e v m sig
+   . ( Effect sig
+     , Member (Reader (Config s e v)) sig
      , Member (State s) sig
-     , Member Repl sig
+     , Member (Error e) sig
+     , Member (Lift IO) (Lift m)
      , Carrier sig m
      )
-  => Config e s v
-  -> m ()
-replLoop config = put initialState >> loop
+  => Config s e v
+  -> s
+  -> m (s, Either e ())
+replLoop config initial = runRepl config initial loop
  where
   loop = do
-    showBanner banner
-    minput <- read
+    showBanner @s @e @v
+    minput <- read @s @e @v
     case minput of
       ""    -> loop
       input -> do
-        state <- get
-        case _interpreter config state input of
-          Left  err   -> throwError err
-          Right value -> do
-            put $ updateState state value
-            print showValue value
-            loop
-
-  initialState = _initialState config
-  banner       = _banner config
-  updateState  = _updateState config
-  showValue    = _showValue config
+        val <- eval @s @e @v input
+        print @s @e @v val

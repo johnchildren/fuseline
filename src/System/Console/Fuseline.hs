@@ -1,7 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -10,7 +10,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -30,15 +29,9 @@ module System.Console.Fuseline
   , print
   , interrupt
   , quit
-  , replLoop
   )
 where
 
-import           Prelude                                  ( (.)
-                                                          , ($)
-                                                          , IO
-                                                          , const
-                                                          )
 import           Control.Applicative                      ( Applicative
                                                           , pure
                                                           )
@@ -55,7 +48,6 @@ import           Control.Effect.Error                     ( ErrorC
                                                           --, catchError
                                                           , runError
                                                           )
-import           Control.Effect.Lift                      ( runM )
 import           Control.Effect.Reader                    ( ReaderC
                                                           , asks
                                                           , runReader
@@ -74,6 +66,9 @@ import           Control.Monad.IO.Class                   ( MonadIO
                                                           , liftIO
                                                           )
 import           Data.Either                              ( Either(..) )
+import           Data.Function                            ( (.)
+                                                          , ($)
+                                                          )
 import           Data.Functor                             ( Functor )
 import           Data.Text                                ( Text )
 import qualified Data.Text.IO                  as Text
@@ -179,29 +174,3 @@ instance (Carrier sig m, Effect sig, MonadIO m) => Carrier (ReplCore :+: ReplVal
 runRepl :: Config s e v -> s -> ReplC s e v m a -> m (s, Either e a)
 runRepl config initial =
   runReader config . runState initial . runError . runReplC
-
-replLoop
-  :: forall v m sig
-   . (Member ReplCore sig, Member (ReplValue v) sig, Carrier sig m)
-  => m ()
-replLoop = showBanner >> loop
- where
-  loop = do
-    minput <- read
-    case minput of
-      ""    -> loop
-      input -> do
-        val <- eval input
-        print @v val
-
-
-example :: IO ((), Either () ())
-example = runM $ runRepl config () (replLoop @())
- where
-  config = Config { _banner      = "hi"
-                  , _interpreter = \_ _ -> Right ()
-                  , _showError   = const ""
-                  , _showValue   = const ""
-                  , _goodbye     = ""
-                  , _updateState = \_ _ -> ()
-                  }

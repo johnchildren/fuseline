@@ -29,7 +29,7 @@ replLoop = showBanner >> loop
         val <- eval input
         print @v val
 
-main :: IO ((), Either () ())
+main :: IO ((), Either (ReplExcept ()) ())
 main = runM $ runRepl config () (replLoop @())
  where
   config = Config { _banner      = "hi"

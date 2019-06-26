@@ -169,6 +169,7 @@ data InterruptExcept = InterruptExcept
   deriving (Show, Eq, Exception)
 
 data ReplExcept a = UserExcept a
+                  | System
                   | ReplInterruptExcept InterruptExcept
   deriving (Show, Eq, Exception)
 

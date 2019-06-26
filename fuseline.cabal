@@ -17,7 +17,6 @@ category:            Development
 extra-source-files:  CHANGELOG.md
                    , README.md
 
-
 common warning-flags
   ghc-options:         -Wall
                        -Wincomplete-uni-patterns
@@ -35,8 +34,9 @@ library
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
   build-depends:       base ^>=4.12.0.0
-                     , fused-effects ^>=0.4.0
                      , text ^>=1.2.0.0
+                     , fused-effects ^>=0.4.0.0
+                     , fused-effects-exceptions ^>=0.1.0.0
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -46,7 +46,9 @@ test-suite examples
   main-is:             Main.hs
   build-depends:       base ^>=4.12.0.0
                      , fuseline
-                     , fused-effects ^>=0.4.0
+                     , fused-effects ^>=0.4.0.0
                      , text ^>=1.2.0.0
+                     , tasty ^>=1.2.0.0
+                     , tasty-hspec ^>=1.1.0.0
   hs-source-dirs:      examples
   default-language:    Haskell2010

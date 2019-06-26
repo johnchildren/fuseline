@@ -3,8 +3,8 @@ cabal-version:       2.4
 name:                fuseline
 version:             0.1.0.0
 synopsis:            Library for building REPLs with fused-effects
--- A longer description of the package.
--- description:
+description:         Library with a few effects and carriers for building
+                     REPLs with simple configs.
 homepage:            github.com/johnchildren/fuseline
 bug-reports:         github.com/johnchildren/fuseline/issues
 license:             BSD-3-Clause
@@ -16,6 +16,12 @@ maintainer:          john.a.children@gmail.com
 category:            Development
 extra-source-files:  CHANGELOG.md
                    , README.md
+
+
+source-repository head
+  type:     git
+  location: https://github.com/johnchildren/fuseline/
+
 
 common warning-flags
   ghc-options:         -Wall

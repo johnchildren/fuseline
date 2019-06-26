@@ -23,7 +23,6 @@ import           Control.Effect.Carrier
 import           Control.Effect.Writer
 import           Control.Effect.State
 import           Control.Effect.Sum
-import           Control.Monad                            ( (>>) )
 import           System.Console.Fuseline
 import           System.IO                                ( IO )
 import           Test.Tasty
@@ -36,9 +35,11 @@ main = do
   defaultMain (testGroup "tests" [spec])
 
 exampleSpec :: Spec
-exampleSpec = describe "repl" $ do
-  it "can show a banner" $ do
-    run (runReplRet [] showBanner) `shouldBe` (["banner"], ([], ()))
+exampleSpec =
+  describe "repl"
+    $          it "can show a banner"
+    $          run (runReplRet [] showBanner)
+    `shouldBe` (["banner"], ([], ()))
 
 simpleExample :: IO ((), Either (ReplExcept ()) ())
 simpleExample = runM $ runRepl config () (showBanner >> loop @())

@@ -1,6 +1,6 @@
 version: 2.1
 orbs:
-  haskell-build: haskell-works/haskell-build@2.1.1
+  haskell: haskell-works/haskell-build@2.1.1
 workflows:
   build-fuseline:
     jobs:

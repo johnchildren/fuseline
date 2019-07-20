@@ -16,6 +16,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module System.Console.Fuseline
@@ -40,13 +41,12 @@ import           Control.Applicative                      ( Applicative
                                                           , pure
                                                           , (<$)
                                                           )
-import           Control.Effect                           ( Member
-                                                          , send
-                                                          )
+import           Control.Effect                           ( Member )
 import           Control.Effect.Carrier                   ( Effect(..)
                                                           , Carrier(..)
                                                           , HFunctor(..)
                                                           , handleCoercible
+                                                          , send
                                                           )
 import           Control.Effect.Error                     ( ErrorC
                                                           , throwError
@@ -82,6 +82,7 @@ import           Data.Functor                             ( Functor
                                                           )
 import           Data.Text                                ( Text )
 import qualified Data.Text.IO                  as Text
+import           GHC.Generics                             ( Generic1 )
 import           System.Exit                              ( exitFailure
                                                           , exitSuccess
                                                           )
@@ -98,22 +99,22 @@ data Config s e v = Config
    }
 --------------------------------------------------------------------------------
 data ReplCore (m :: * -> *) k
-  = ShowBanner k
-  | Read (Text -> k)
-  | forall b . HandleInterrupt (m b) (InterruptExcept -> m b) (b -> k)
-  | Interrupt k
-  | Kill k
-  | Quit k
+  = ShowBanner (m k)
+  | Read (Text -> m k)
+  | forall b . HandleInterrupt (m b) (InterruptExcept -> m b) (b -> m k)
+  | Interrupt (m k)
+  | Kill (m k)
+  | Quit (m k)
 
-deriving instance Functor (ReplCore m)
+deriving stock instance Functor m => Functor (ReplCore m)
 
 instance HFunctor ReplCore where
-  hmap _ (ShowBanner k         ) = ShowBanner k
-  hmap _ (Read       k         ) = Read k
-  hmap f (HandleInterrupt m h k) = HandleInterrupt (f m) (f . h) k
-  hmap _ (Interrupt k          ) = Interrupt k
-  hmap _ (Kill      k          ) = Kill k
-  hmap _ (Quit      k          ) = Quit k
+  hmap f (ShowBanner k         ) = ShowBanner (f k)
+  hmap f (Read       k         ) = Read (f . k)
+  hmap f (HandleInterrupt m h k) = HandleInterrupt (f m) (f . h) (f . k)
+  hmap f (Interrupt k          ) = Interrupt (f k)
+  hmap f (Kill      k          ) = Kill (f k)
+  hmap f (Quit      k          ) = Quit (f k)
 
 instance Effect ReplCore where
   handle state handler (ShowBanner k) = ShowBanner (handler (k <$ state))
@@ -150,18 +151,19 @@ quit = send $ Quit (pure ())
 
 --------------------------------------------------------------------------------
 data ReplValue v (m :: * -> *) k
-  = Eval Text (v -> k)
-  | Print v k
+  = Eval Text (v -> m k)
+  | Print v (m k)
 
-deriving instance Functor (ReplValue v m)
-deriving instance HFunctor (ReplValue v)
-deriving instance Effect (ReplValue v)
+deriving stock instance Generic1 (ReplValue v m)
+deriving stock instance Functor m => Functor (ReplValue v m)
+deriving anyclass instance HFunctor (ReplValue v)
+deriving anyclass instance Effect (ReplValue v)
 
 eval :: (Member (ReplValue v) sig, Carrier sig m) => Text -> m v
-eval t = send (Eval t pure)
+eval t = send $ Eval t pure
 
 print :: (Member (ReplValue v) sig, Carrier sig m) => v -> m ()
-print val = send (Print val (pure ()))
+print val = send $ Print val (pure ())
 
 --------------------------------------------------------------------------------
 -- Fuseline exceptions
@@ -181,9 +183,7 @@ newtype ReplIOC s e v m a = ReplIOC { runReplIOC :: ErrorC (ReplExcept e) (State
 instance (Carrier sig m, Effect sig, MonadIO m) => Carrier (ReplCore :+: ReplValue v :+: sig) (ReplIOC s e v m) where
   eff
     :: forall a
-     . (ReplCore :+: ReplValue v :+: sig)
-      (ReplIOC s e v m)
-      (ReplIOC s e v m a)
+     . (:+:) ReplCore (ReplValue v :+: sig) (ReplIOC s e v m) a
     -> ReplIOC s e v m a
   eff = \case
 

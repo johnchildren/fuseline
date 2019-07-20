@@ -22,7 +22,6 @@ import           Control.Effect
 import           Control.Effect.Carrier
 import           Control.Effect.Writer
 import           Control.Effect.State
-import           Control.Effect.Sum
 import           System.Console.Fuseline
 import           System.IO                                ( IO )
 import           Test.Tasty

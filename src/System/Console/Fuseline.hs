@@ -5,7 +5,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
@@ -80,6 +80,7 @@ import           Data.Function                            ( (.)
 import           Data.Functor                             ( Functor
                                                           , fmap
                                                           )
+import           Data.Kind                                ( Type )
 import           Data.Text                                ( Text )
 import qualified Data.Text.IO                  as Text
 import           GHC.Generics                             ( Generic1 )
@@ -98,7 +99,7 @@ data Config s e v = Config
    , _updateState :: s -> v -> s
    }
 --------------------------------------------------------------------------------
-data ReplCore (m :: * -> *) k
+data ReplCore (m :: Type -> Type) k
   = ShowBanner (m k)
   | Read (Text -> m k)
   | forall b . HandleInterrupt (m b) (InterruptExcept -> m b) (b -> m k)
@@ -150,7 +151,7 @@ quit :: (Member ReplCore sig, Carrier sig m) => m ()
 quit = send $ Quit (pure ())
 
 --------------------------------------------------------------------------------
-data ReplValue v (m :: * -> *) k
+data ReplValue v (m :: Type -> Type) k
   = Eval Text (v -> m k)
   | Print v (m k)
 
@@ -178,7 +179,7 @@ data ReplExcept a = UserExcept a
 --------------------------------------------------------------------------------
 -- Carrier for a summation of Repl effects
 newtype ReplIOC s e v m a = ReplIOC { runReplIOC :: ErrorC (ReplExcept e) (StateC s (ReaderC (Config s e v) m)) a }
-  deriving newtype (Functor, Applicative, Monad, MonadIO)
+  deriving (Functor, Applicative, Monad, MonadIO) via ErrorC (ReplExcept e) (StateC s (ReaderC (Config s e v) m))
 
 instance (Carrier sig m, Effect sig, MonadIO m) => Carrier (ReplCore :+: ReplValue v :+: sig) (ReplIOC s e v m) where
   eff
